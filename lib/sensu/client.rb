@@ -105,25 +105,15 @@ module Sensu
         command, unmatched_tokens = substitute_command_tokens(check)
         check[:executed] = Time.now.to_i
         if unmatched_tokens.empty?
-          execute = Proc.new do
-            @logger.debug('executing check command', {
-              :check => check
-            })
-            started = Time.now.to_f
-            begin
-              check[:output], check[:status] = IO.popen(command, 'r', check[:timeout])
-            rescue => error
-              check[:output] = 'Unexpected error: ' + error.to_s
-              check[:status] = 2
-            end
-            check[:duration] = ('%.3f' % (Time.now.to_f - started)).to_f
-            check
+          EM::system(command) do |output, status|
+              @logger.debug('executing check command', {
+                :check => check
+              })
+              check[:output] = output
+              check[:status] = status
+              publish_result(check)
+              @checks_in_progress.delete(check[:name])
           end
-          publish = Proc.new do |check|
-            publish_result(check)
-            @checks_in_progress.delete(check[:name])
-          end
-          EM::defer(execute, publish)
         else
           check[:output] = 'Unmatched command tokens: ' + unmatched_tokens.join(', ')
           check[:status] = 3
